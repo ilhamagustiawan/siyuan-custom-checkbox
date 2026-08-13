@@ -4,6 +4,7 @@ node_modules
 .eslintcache
 .dprint
 dist
+dev
 package.zip
 index.css
 index.js
