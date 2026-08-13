@@ -13,13 +13,11 @@ import zipPack from "vite-plugin-zip-pack";
 const env = process.env;
 const isSrcmap = env.VITE_SOURCEMAP === "inline";
 const isDev = env.NODE_ENV === "development";
-const buildTarget = env.VITE_BUILD_TARGET === "kernel" ? "kernel" : "app";
 const outputDir = isDev ? "dev" : "dist";
 
 console.log("isDev=>", isDev);
 console.log("isSrcmap=>", isSrcmap);
 console.log("outputDir=>", outputDir);
-console.log("buildTarget=>", buildTarget);
 
 export default defineConfig(async () => {
     let livereload;
@@ -29,38 +27,6 @@ export default defineConfig(async () => {
         } catch (error) {
             console.warn("Live reload is unavailable:", error);
         }
-    }
-
-    if (buildTarget === "kernel") {
-        return {
-            build: {
-                outDir: outputDir,
-                emptyOutDir: false,
-                minify: true,
-                sourcemap: isSrcmap ? "inline" : false,
-                lib: {
-                    entry: resolve(__dirname, "src/kernel.ts"),
-                    fileName: "kernel",
-                    formats: ["es"],
-                },
-                rollupOptions: {
-                    plugins: isDev ?
-                        [
-                            watchExternalFiles(["src/kernel.ts"]),
-                        ] :
-                        [
-                            cleanupDistFiles({
-                                patterns: ["i18n/*.yaml", "i18n/*.md"],
-                                distDir: outputDir,
-                            }),
-                        ],
-                    external: ["siyuan"],
-                    output: {
-                        entryFileNames: "kernel.js",
-                    },
-                },
-            },
-        };
     }
 
     return {

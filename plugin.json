@@ -4,16 +4,6 @@
   "url": "https://github.com/ilhamagustiawan/siyuan-custom-checkbox",
   "version": "0.1.0",
   "minAppVersion": "3.8.0",
-  "kernels": [
-    "windows",
-    "linux",
-    "darwin",
-    "ios",
-    "android",
-    "harmony",
-    "docker",
-    "all"
-  ],
   "backends": [
     "windows",
     "linux",

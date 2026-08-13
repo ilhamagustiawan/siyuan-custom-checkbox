@@ -1,31 +1,23 @@
-import {assertValidTaskMarker} from "./marker-registry";
+import {assertValidTaskMarker} from "./libs/marker-registry";
+import type {
+    TaskMarkerApi,
+    TaskMarkerPost,
+    TaskMarkerRequest,
+    TaskMarkerResponse,
+    TaskMarkerUpdate,
+} from "./types/api";
+export type {
+    TaskMarkerApi,
+    TaskMarkerPost,
+    TaskMarkerRequest,
+    TaskMarkerResponse,
+    TaskMarkerUpdate,
+} from "./types/api";
 
 export const TASK_MARKER_ENDPOINTS = {
     update: "/api/block/updateTaskListItemMarker",
     batchUpdate: "/api/block/batchUpdateTaskListItemMarker",
 } as const;
-
-export interface TaskMarkerUpdate {
-    readonly id: string;
-    readonly marker: string;
-}
-
-export interface TaskMarkerResponse<T = unknown> {
-    readonly code: number;
-    readonly msg?: string;
-    readonly data?: T;
-}
-
-export type TaskMarkerRequest = TaskMarkerUpdate | {
-    readonly items: readonly TaskMarkerUpdate[];
-};
-
-/**
- * SiYuan's callback-based fetchPost signature, kept as a type-only
- * dependency so the request contract remains testable without importing the
- * runtime-only SiYuan module in unit tests.
- */
-export type TaskMarkerPost = typeof import("siyuan").fetchPost;
 
 export class TaskMarkerApiError extends Error {
     readonly code?: number;
@@ -37,11 +29,6 @@ export class TaskMarkerApiError extends Error {
         this.code = response?.code;
         this.response = response;
     }
-}
-
-export interface TaskMarkerApi {
-    updateTaskListItemMarker(update: TaskMarkerUpdate): Promise<TaskMarkerResponse>;
-    batchUpdateTaskListItemMarker(updates: readonly TaskMarkerUpdate[]): Promise<TaskMarkerResponse>;
 }
 
 export function createTaskMarkerApi(post: TaskMarkerPost): TaskMarkerApi {

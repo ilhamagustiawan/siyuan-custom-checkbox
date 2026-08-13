@@ -14,6 +14,7 @@
   "excludes": [
     "**/.git",
     "**/node_modules",
+    "**/.tmp",
     "**/dist",
     "**/pnpm-lock.yaml",
     "index.js",
