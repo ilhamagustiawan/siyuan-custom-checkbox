@@ -1,6 +1,6 @@
 # Checkbox icon mapping
 
-The checkbox markers below map to the Minimal-style icons in `src/checklist-icons.scss`.
+The checkbox markers below map to the Minimal-style icons in `src/index.scss`.
 The stylesheet targets SiYuan task items through `data-task` and keeps the native SiYuan icons for the ordinary unchecked and completed states.
 
 | Marker    | Markdown syntax   | Status           | Icon mapping       | Rendering                          | Color token           |
@@ -32,7 +32,7 @@ The stylesheet targets SiYuan task items through `data-task` and keeps the nativ
 
 The icon geometry is adapted from Minimal for Obsidian:
 
-- [Minimal `checklist-icons.scss`](https://github.com/kepano/obsidian-minimal/blob/master/src/scss/features/checklist-icons.scss)
-- [Minimal MIT license](https://github.com/kepano/obsidian-minimal/blob/master/LICENSE)
+* [Minimal `checklist-icons.scss`](https://github.com/kepano/obsidian-minimal/blob/master/src/scss/features/checklist-icons.scss)
+* [Minimal MIT license](https://github.com/kepano/obsidian-minimal/blob/master/LICENSE)
 
 Unknown markers are not mapped and retain SiYuan's native task presentation.
