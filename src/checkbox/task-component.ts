@@ -3,9 +3,12 @@ import {
     type SupportedMarker,
 } from "../libs/marker-registry";
 import {getStatusLabel} from "../libs/status-labels";
+import {getTaskIconUrl} from "../libs/task-icons";
+import {getTaskStyle} from "../libs/task-styles";
 
 export const CUSTOM_CHECKBOX_CLASS = "siyuan-custom-checkbox";
 export const CUSTOM_CHECKBOX_ACTION_CLASS = "siyuan-custom-checkbox-action";
+export const CUSTOM_CHECKBOX_TASK_CLASS = "siyuan-custom-checkbox-task";
 
 const CUSTOM_MARKER_ALIAS = "“";
 const QUOTE_MARKER = '"';
@@ -18,8 +21,10 @@ const ACTION_ATTRIBUTES = [
     "aria-checked",
     "aria-label",
     "tabindex",
+    "style",
 ];
 const originalActionAttributes = new WeakMap<Element, Map<string, string | null>>();
+const originalTaskClasses = new WeakMap<Element, boolean>();
 
 function getDirectChild(element: Element, selector: string): Element | undefined {
     return Array.from(element.children).find((child) => child.matches(selector));
@@ -104,7 +109,13 @@ function rememberActionAttributes(action: Element): void {
 function restoreActionAttributes(action: Element): void {
     const attributes = originalActionAttributes.get(action);
     if (!attributes) {
-        ACTION_ATTRIBUTES.forEach((name) => action.removeAttribute(name));
+        ACTION_ATTRIBUTES.forEach((name) => {
+            if (name === "style") {
+                (action as HTMLElement).style.removeProperty("--siyuan-custom-checkbox-base-color");
+            } else {
+                action.removeAttribute(name);
+            }
+        });
         return;
     }
     attributes.forEach((value, name) => {
@@ -133,6 +144,71 @@ function ensureCheckboxElement(action: Element, marker: string): HTMLElement {
     return checkbox;
 }
 
+const SPLIT_BACKGROUND_IMAGE =
+    "linear-gradient(to right, var(--b3-theme-primary, currentColor) 0 50%, transparent 50% 100%)";
+
+function rememberTaskClass(taskItem: Element): void {
+    if (!originalTaskClasses.has(taskItem)) {
+        originalTaskClasses.set(taskItem, taskItem.classList.contains(CUSTOM_CHECKBOX_TASK_CLASS));
+    }
+}
+
+function restoreTaskClass(taskItem: Element): void {
+    if (originalTaskClasses.get(taskItem) === true) {
+        taskItem.classList.add(CUSTOM_CHECKBOX_TASK_CLASS);
+    } else {
+        taskItem.classList.remove(CUSTOM_CHECKBOX_TASK_CLASS);
+    }
+    originalTaskClasses.delete(taskItem);
+}
+
+function applyTaskStyle(action: Element, checkbox: HTMLElement, marker: string): void {
+    const taskStyle = getTaskStyle(marker);
+    const actionStyle = (action as HTMLElement).style;
+    if (!taskStyle) {
+        actionStyle.removeProperty("--siyuan-custom-checkbox-base-color");
+        checkbox.style.removeProperty("background-color");
+        checkbox.style.removeProperty("background-image");
+        checkbox.style.removeProperty("background-size");
+        checkbox.style.removeProperty("-webkit-mask-image");
+        checkbox.style.removeProperty("mask-image");
+        checkbox.style.removeProperty("transform");
+        checkbox.style.removeProperty("border");
+        checkbox.style.removeProperty("border-radius");
+        return;
+    }
+
+    const icon = taskStyle.icon ? getTaskIconUrl(taskStyle.icon) : "none";
+    const backgroundImage = taskStyle.mode === "background" ?
+        icon :
+        taskStyle.mode === "split" ?
+        SPLIT_BACKGROUND_IMAGE :
+        "none";
+    const maskImage = taskStyle.mode === "mask" ? icon : "none";
+
+    actionStyle.setProperty("--siyuan-custom-checkbox-base-color", taskStyle.color);
+    checkbox.style.setProperty("background-image", backgroundImage);
+    checkbox.style.setProperty("background-size", taskStyle.backgroundSize ?? "contain");
+    checkbox.style.setProperty("-webkit-mask-image", maskImage);
+    checkbox.style.setProperty("mask-image", maskImage);
+
+    if (taskStyle.transform) {
+        checkbox.style.setProperty("transform", taskStyle.transform);
+    } else {
+        checkbox.style.removeProperty("transform");
+    }
+
+    if (taskStyle.mode === "split") {
+        checkbox.style.setProperty("background-color", "transparent");
+        checkbox.style.setProperty("border", "1px solid var(--b3-border-color, currentColor)");
+        checkbox.style.setProperty("border-radius", "3px");
+    } else {
+        checkbox.style.removeProperty("background-color");
+        checkbox.style.removeProperty("border");
+        checkbox.style.removeProperty("border-radius");
+    }
+}
+
 export function reconcileTaskCheckbox(
     taskItem: Element,
     action: Element | undefined,
@@ -140,10 +216,14 @@ export function reconcileTaskCheckbox(
 ): void {
     const marker = taskItem.getAttribute("data-task");
     if (!action) {
+        if (!isCustomMarker(marker)) {
+            restoreTaskClass(taskItem);
+        }
         return;
     }
 
     if (!isCustomMarker(marker)) {
+        restoreTaskClass(taskItem);
         const wasCustom = restoreTaskCheckbox(action);
         if (wasCustom && isManagedMarker(marker)) {
             setNativeIcon(action, marker);
@@ -151,6 +231,8 @@ export function reconcileTaskCheckbox(
         return;
     }
 
+    rememberTaskClass(taskItem);
+    taskItem.classList.add(CUSTOM_CHECKBOX_TASK_CLASS);
     const checkbox = ensureCheckboxElement(action, marker);
     rememberActionAttributes(action);
     action.classList.add(CUSTOM_CHECKBOX_ACTION_CLASS);
@@ -159,6 +241,7 @@ export function reconcileTaskCheckbox(
     action.setAttribute("aria-checked", "false");
     action.setAttribute("aria-label", getCheckboxLabel(marker, i18n));
     action.setAttribute("tabindex", "0");
+    applyTaskStyle(action, checkbox, marker);
 
     // Lute treats .protyle-action as presentation-only when serializing, so keep
     // the native SVG in place while making the plugin component the only visible
@@ -192,6 +275,7 @@ export function restoreTaskCheckboxes(root: ParentNode): void {
     }
     taskItems.push(...Array.from(root.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"]')));
     taskItems.forEach((taskItem) => {
+        restoreTaskClass(taskItem);
         const action = taskItem.querySelector(
             ":scope > .protyle-action--task, :scope > p > .protyle-action--task",
         ) ?? undefined;

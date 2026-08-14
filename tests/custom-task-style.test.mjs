@@ -4,59 +4,47 @@ import test from "node:test";
 import {fileURLToPath} from "node:url";
 
 const stylesheetPath = fileURLToPath(new URL("../dist/index.css", import.meta.url));
-const customMarkers = [
-    ">",
-    "<",
-    "?",
-    "/",
-    "!",
-    "-",
-    "*",
-    "l",
-    "i",
-    "S",
-    "I",
-    "f",
-    "k",
-    "u",
-    "d",
-    "w",
-    "p",
-    "c",
-    "b",
-    '"',
-    "“",
-];
-
-function markerSelector(marker) {
-    if (marker === '"') {
-        return "[data-task='\"']";
-    }
-    if (marker === "“" || /^[a-zA-Z]$/.test(marker)) {
-        return `[data-task=${marker}]`;
-    }
-    return `[data-task="${marker}"]`;
-}
+const scssPath = fileURLToPath(new URL("../src/index.scss", import.meta.url));
+const taskStylesPath = fileURLToPath(new URL("../src/libs/task-styles.ts", import.meta.url));
+const taskIconsPath = fileURLToPath(new URL("../src/libs/task-icons.ts", import.meta.url));
 
 async function readStylesheet() {
     return readFile(stylesheetPath, "utf8");
 }
 
-for (const marker of customMarkers) {
-    test(`alternate marker ${JSON.stringify(marker)} keeps task text unchecked`, async () => {
-        const stylesheet = await readStylesheet();
-        const selector = `${markerSelector(marker)}.protyle-task--done>[data-node-id].p`;
-        const ruleStart = stylesheet.indexOf(selector);
-        assert.notEqual(ruleStart, -1, `missing completion override for marker ${JSON.stringify(marker)}`);
+test("custom task styles are shared instead of marker-specific CSS", async () => {
+    const stylesheet = await readStylesheet();
 
-        const ruleEnd = stylesheet.indexOf("}", ruleStart);
-        assert.match(
-            stylesheet.slice(ruleStart, ruleEnd),
-            /text-decoration:none!important/,
-            `marker ${JSON.stringify(marker)} should not inherit the completion strikethrough`,
-        );
-    });
-}
+    assert.match(stylesheet, /\.siyuan-custom-checkbox-action/);
+    assert.match(stylesheet, /\.siyuan-custom-checkbox-action>svg\{display:none\s*!important\}/);
+    assert.match(stylesheet, /background-color:var\(--siyuan-custom-checkbox/);
+    assert.match(stylesheet, /visibility:visible\s*!important/);
+    assert.doesNotMatch(stylesheet, /data-task=/);
+    assert.doesNotMatch(stylesheet, /data:image\/svg\+xml/);
+});
+
+test("visual marker mappings live in TypeScript registries", async () => {
+    const [scss, taskStyles, taskIcons] = await Promise.all([
+        readFile(scssPath, "utf8"),
+        readFile(taskStylesPath, "utf8"),
+        readFile(taskIconsPath, "utf8"),
+    ]);
+
+    assert.doesNotMatch(scss, /\$icon-library|\$marker-styles/);
+    assert.doesNotMatch(scss, /data:image\/svg\+xml/);
+    assert.match(taskStyles, /TASK_STYLES/);
+    assert.match(taskStyles, /getTaskStyle/);
+    assert.match(taskIcons, /TASK_ICONS/);
+});
+
+test("custom task text uses the editor text color", async () => {
+    const stylesheet = await readStylesheet();
+
+    assert.match(
+        stylesheet,
+        /\.siyuan-custom-checkbox-task>\[data-node-id\]\.p\{[^}]*color:inherit\s*!important/,
+    );
+});
 
 test("native completed markers keep SiYuan's completion styling", async () => {
     const stylesheet = await readStylesheet();
@@ -69,14 +57,4 @@ test("native completed markers keep SiYuan's completion styling", async () => {
         stylesheet.includes("[data-task=X].protyle-task--done>[data-node-id].p"),
         false,
     );
-});
-
-test("alternate marker rules target component checkboxes", async () => {
-    const stylesheet = await readStylesheet();
-    for (const marker of customMarkers) {
-        const selector = `${markerSelector(marker)}>.protyle-action--task>.siyuan-custom-checkbox`;
-        assert.notEqual(stylesheet.indexOf(selector), -1, `missing component selector for ${JSON.stringify(marker)}`);
-    }
-    assert.match(stylesheet, /visibility:visible!important/);
-    assert.doesNotMatch(stylesheet, /::before/);
 });
