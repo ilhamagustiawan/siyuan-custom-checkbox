@@ -27,7 +27,7 @@ export default class CustomCheckboxPlugin extends Plugin {
             showMessage(message.replace("${message}", detail), 6000, "error");
         }
         const settings = normalizeSettings(savedConfig);
-        this.controller = createCheckboxController(settings, this.i18n);
+        this.controller = createCheckboxController(settings, this.i18n, this.eventBus);
         this.controller.start();
         this.addCommand({
             langKey: "taskStatusCommand",

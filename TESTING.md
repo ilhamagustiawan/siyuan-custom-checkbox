@@ -15,6 +15,8 @@ Create one task for each marker and verify the checkbox action is visible, disti
 * [ ] Unchecked space (``) uses SiYuan's native unchecked icon.
 * [ ] `x` and `X` use SiYuan's native completed icon.
 * [ ] Alternate markers render their expected icon and theme color: `/`, `-`, `>`, `<`, `?`, `!`, `*`, `"`, `“`, `l`, `b`, `i`, `S`, `I`, `p`, `c`, `f`, `k`, `w`, `u`, `d`.
+* [ ] Alternate markers keep the task text at unchecked opacity and do not appear dimmed as completed.
+* [ ] Alternate markers contain one visible plugin checkbox component, not a duplicate native icon.
 * [ ] Switch between light and dark themes; icons remain visible with readable contrast.
 * [ ] Add nested task lists; icons remain scoped to task actions and do not affect ordinary lists.
 * [ ] Open a read-only/published view and confirm the plugin does not add editor-only controls outside its intended scope.
@@ -62,3 +64,4 @@ Create one task for each marker and verify the checkbox action is visible, disti
 * `pnpm lint`
 * `pnpm format:check`
 * `pnpm build`
+* `pnpm test`

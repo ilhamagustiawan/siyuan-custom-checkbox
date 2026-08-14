@@ -2,6 +2,8 @@ import {
     fetchPost,
     Menu,
     showMessage,
+    type EventBus,
+    type IProtyle,
 } from "siyuan";
 import {createTaskMarkerApi} from "../api";
 import {
@@ -11,10 +13,16 @@ import {
 } from "../libs/marker-registry";
 import {getStatusLabel} from "../libs/status-labels";
 import type {CheckboxSettings} from "../settings";
+import {
+    isCustomMarker,
+    reconcileTaskCheckbox,
+    restoreTaskCheckboxes,
+} from "./task-component";
 
 const TASK_ITEM_SELECTOR = '[data-type="NodeListItem"][data-subtype="t"]';
 const TASK_ACTION_SELECTOR = ".protyle-action--task";
 const TASK_ACTION_IN_ITEM_SELECTOR = `:scope > ${TASK_ACTION_SELECTOR}, :scope > p > ${TASK_ACTION_SELECTOR}`;
+const TASK_DONE_CLASS = "protyle-task--done";
 const UNCHECKED_MARKER = " ";
 const NATIVE_MARKERS = new Set([" ", "x", "X"]);
 const LONG_PRESS_MS = 500;
@@ -43,7 +51,7 @@ function getTaskItem(target: EventTarget | null): Element | undefined {
     }
 
     const taskItem = target.closest(TASK_ITEM_SELECTOR);
-    if (!taskItem || !taskItem.closest(".protyle-wysiwyg")) {
+    if (!taskItem || !isEditorTaskItem(taskItem)) {
         return undefined;
     }
 
@@ -95,7 +103,85 @@ function getErrorText(
 }
 
 function isKnownMarker(marker: string | null): boolean {
-    return marker !== null && (NATIVE_MARKERS.has(marker) || isSupportedMarker(marker));
+    return marker !== null && (
+        NATIVE_MARKERS.has(marker) ||
+        isSupportedMarker(marker) ||
+        isCustomMarker(marker)
+    );
+}
+
+// SiYuan treats every non-space marker as completed. Keep the host class in
+// sync for native states and remove it for custom visual statuses; the CSS
+// fallback also covers a host rerender that reapplies the class.
+function syncTaskCompletionClass(taskItem: Element, marker: string | null): void {
+    if (marker === "x" || marker === "X") {
+        taskItem.classList.add(TASK_DONE_CLASS);
+    } else if (marker === UNCHECKED_MARKER || isCustomMarker(marker)) {
+        taskItem.classList.remove(TASK_DONE_CLASS);
+    }
+}
+
+function normalizeTaskItem(taskItem: Element, i18n: Record<string, string>): void {
+    const marker = taskItem.getAttribute("data-task");
+    syncTaskCompletionClass(taskItem, marker);
+    reconcileTaskCheckbox(taskItem, getTaskAction(taskItem), i18n);
+}
+
+function normalizeTaskItems(root: ParentNode, i18n: Record<string, string>): void {
+    root.querySelectorAll(TASK_ITEM_SELECTOR).forEach((taskItem) => {
+        if (isEditorTaskItem(taskItem)) {
+            normalizeTaskItem(taskItem, i18n);
+        } else {
+            restoreTaskCheckboxes(taskItem);
+        }
+    });
+}
+function restoreTaskItems(root: ParentNode): void {
+    restoreTaskCheckboxes(root);
+    root.querySelectorAll(TASK_ITEM_SELECTOR).forEach((taskItem) => {
+        const marker = taskItem.getAttribute("data-task");
+        if (!isEditorTaskItem(taskItem)) {
+            return;
+        }
+        if (marker === "x" || marker === "X" || isCustomMarker(marker)) {
+            taskItem.classList.add(TASK_DONE_CLASS);
+        } else if (marker === UNCHECKED_MARKER) {
+            taskItem.classList.remove(TASK_DONE_CLASS);
+        }
+    });
+}
+
+function isEditorTaskItem(taskItem: Element): boolean {
+    const wysiwyg = taskItem.closest(".protyle-wysiwyg");
+    return wysiwyg !== null && wysiwyg.getAttribute("data-readonly") !== "true";
+}
+
+function collectTaskItems(node: Node, taskItems: Set<Element>): void {
+    if (!(node instanceof Element)) {
+        return;
+    }
+    if (node.matches(TASK_ITEM_SELECTOR) && isEditorTaskItem(node)) {
+        taskItems.add(node);
+    }
+    node.querySelectorAll(TASK_ITEM_SELECTOR).forEach((taskItem) => {
+        if (isEditorTaskItem(taskItem)) {
+            taskItems.add(taskItem);
+        }
+    });
+}
+
+function collectMutatedTaskItems(mutations: MutationRecord[]): Set<Element> {
+    const taskItems = new Set<Element>();
+    mutations.forEach((mutation) => {
+        const taskItem = getTaskItem(mutation.target);
+        if (taskItem) {
+            taskItems.add(taskItem);
+        }
+        if (mutation.type === "childList") {
+            mutation.addedNodes.forEach((node) => collectTaskItems(node, taskItems));
+        }
+    });
+    return taskItems;
 }
 
 function isCurrentTaskContext(taskItem: Element, action: Element, id: string): boolean {
@@ -121,6 +207,7 @@ function hasTouchIdentifier(touches: TouchList, identifier: number): boolean {
 export function createCheckboxController(
     initialSettings: CheckboxSettings,
     i18n: Record<string, string>,
+    eventBus?: EventBus,
 ): CheckboxController {
     const markerApi = createTaskMarkerApi(fetchPost);
     let settings = initialSettings;
@@ -130,8 +217,44 @@ export function createCheckboxController(
     let longPressAction: Element | undefined;
     let longPressTouchId: number | undefined;
     let suppressClickTarget: Element | undefined;
+    let taskObserver: MutationObserver | undefined;
+    let normalizeTimer: number | undefined;
+    const pendingTaskItems = new Set<Element>();
     let started = false;
 
+    const normalizeLoadedProtyle = (event: CustomEvent<{protyle: IProtyle;}>): void => {
+        const root = event.detail.protyle.wysiwyg?.element ?? event.detail.protyle.element;
+        normalizeTaskItems(root, i18n);
+    };
+    const clearNormalizeTimer = (): void => {
+        pendingTaskItems.clear();
+        if (normalizeTimer !== undefined) {
+            window.clearTimeout(normalizeTimer);
+            normalizeTimer = undefined;
+        }
+    };
+    const scheduleNormalization = (taskItems: Set<Element>): void => {
+        taskItems.forEach((taskItem) => {
+            if (taskItem.isConnected && isEditorTaskItem(taskItem)) {
+                pendingTaskItems.add(taskItem);
+            }
+        });
+        if (pendingTaskItems.size === 0 || normalizeTimer !== undefined) {
+            return;
+        }
+        normalizeTimer = window.setTimeout(() => {
+            normalizeTimer = undefined;
+            const items = Array.from(pendingTaskItems);
+            pendingTaskItems.clear();
+            if (started) {
+                items.forEach((taskItem) => {
+                    if (taskItem.isConnected && isEditorTaskItem(taskItem)) {
+                        normalizeTaskItem(taskItem, i18n);
+                    }
+                });
+            }
+        }, 0);
+    };
     const clearLongPressTimer = (): void => {
         if (longPressTimer !== undefined) {
             window.clearTimeout(longPressTimer);
@@ -161,17 +284,19 @@ export function createCheckboxController(
 
         const normalizedPrevious = previousMarker === "X" ? "x" : previousMarker;
         if (normalizedPrevious === nextMarker) {
+            normalizeTaskItem(taskItem, i18n);
             return;
         }
 
         taskItem.setAttribute("data-task", nextMarker);
+        normalizeTaskItem(taskItem, i18n);
         const restoreOnError = (error: unknown): void => {
             if (taskItem.getAttribute("data-task") === nextMarker) {
                 taskItem.setAttribute("data-task", previousMarker);
+                normalizeTaskItem(taskItem, i18n);
             }
             showMessage(getErrorText(i18n, errorKey, fallbackError, error), 6000, "error");
         };
-
         try {
             void markerApi.updateTaskListItemMarker({id, marker: nextMarker}).catch(restoreOnError);
         } catch (error) {
@@ -187,7 +312,7 @@ export function createCheckboxController(
 
         activeMenu?.close();
         const currentMarker = taskItem.getAttribute("data-task");
-        const normalizedCurrent = currentMarker === "X" ? "x" : currentMarker;
+        const normalizedCurrent = currentMarker === "X" ? "x" : currentMarker === "“" ? '"' : currentMarker;
         const menu = new Menu("siyuan-custom-checkbox-status");
         menu.addItem({
             type: "readonly",
@@ -277,6 +402,27 @@ export function createCheckboxController(
 
         const id = context.taskItem.getAttribute("data-node-id");
         if (!id) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        updateMarker(
+            context.taskItem,
+            id,
+            UNCHECKED_MARKER,
+            "taskStatusResetError",
+            "Unable to reset task status${message}",
+        );
+    };
+    const handleKeyDown = (event: KeyboardEvent): void => {
+        if (event.key !== "Enter" && event.key !== " ") {
+            return;
+        }
+        const context = getTaskContext(event.target);
+        const marker = context?.taskItem.getAttribute("data-task");
+        const id = context?.taskItem.getAttribute("data-node-id");
+        if (!context || !id || !isKnownMarker(marker) || NATIVE_MARKERS.has(marker)) {
             return;
         }
 
@@ -381,7 +527,26 @@ export function createCheckboxController(
                 return;
             }
             started = true;
+            normalizeTaskItems(document, i18n);
+            taskObserver = new MutationObserver((mutations) => {
+                if (mutations.some((mutation) => mutation.attributeName === "data-readonly")) {
+                    normalizeTaskItems(document, i18n);
+                }
+                const taskItems = collectMutatedTaskItems(mutations);
+                if (taskItems.size > 0) {
+                    scheduleNormalization(taskItems);
+                }
+            });
+            taskObserver.observe(document, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                attributeFilter: ["data-task", "data-readonly"],
+            });
+            eventBus?.on("loaded-protyle-static", normalizeLoadedProtyle);
+            eventBus?.on("loaded-protyle-dynamic", normalizeLoadedProtyle);
             document.addEventListener("click", handleClick, true);
+            document.addEventListener("keydown", handleKeyDown, true);
             document.addEventListener("contextmenu", handleContextMenu, true);
             document.addEventListener("touchstart", handleTouchStart, {capture: true, passive: true});
             document.addEventListener("touchmove", handleTouchMove, {capture: true, passive: true});
@@ -395,11 +560,18 @@ export function createCheckboxController(
             started = false;
             clearLongPressTimer();
             clearSuppressClick();
+            clearNormalizeTimer();
             longPressAction = undefined;
             longPressTouchId = undefined;
             activeMenu?.close();
             activeMenu = undefined;
+            taskObserver?.disconnect();
+            taskObserver = undefined;
+            restoreTaskItems(document);
+            eventBus?.off("loaded-protyle-static", normalizeLoadedProtyle);
+            eventBus?.off("loaded-protyle-dynamic", normalizeLoadedProtyle);
             document.removeEventListener("click", handleClick, true);
+            document.removeEventListener("keydown", handleKeyDown, true);
             document.removeEventListener("contextmenu", handleContextMenu, true);
             document.removeEventListener("touchstart", handleTouchStart, true);
             document.removeEventListener("touchmove", handleTouchMove, true);
